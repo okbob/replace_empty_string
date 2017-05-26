@@ -20,6 +20,60 @@ PG_MODULE_MAGIC;
 
 PG_FUNCTION_INFO_V1(replace_empty_string);
 
+static HeapTuple
+__heap_modify_tuple_by_cols(HeapTuple tuple,
+						  TupleDesc tupleDesc,
+						  int nCols,
+						  int *replCols,
+						  Datum *replValues,
+						  bool *replIsnull)
+{
+	int			numberOfAttributes = tupleDesc->natts;
+	Datum	   *values;
+	bool	   *isnull;
+	HeapTuple	newTuple;
+	int			i;
+
+	/*
+	 * allocate and fill values and isnull arrays from the tuple, then replace
+	 * selected columns from the input arrays.
+	 */
+	values = (Datum *) palloc(numberOfAttributes * sizeof(Datum));
+	isnull = (bool *) palloc(numberOfAttributes * sizeof(bool));
+
+	heap_deform_tuple(tuple, tupleDesc, values, isnull);
+
+	for (i = 0; i < nCols; i++)
+	{
+		int			attnum = replCols[i];
+
+		if (attnum <= 0 || attnum > numberOfAttributes)
+			elog(ERROR, "invalid column number %d", attnum);
+		values[attnum - 1] = replValues[i];
+		isnull[attnum - 1] = replIsnull[i];
+	}
+
+	/*
+	 * create a new tuple from the values and isnull arrays
+	 */
+	newTuple = heap_form_tuple(tupleDesc, values, isnull);
+
+	pfree(values);
+	pfree(isnull);
+
+	/*
+	 * copy the identification info of the old tuple: t_ctid, t_self, and OID
+	 * (if any)
+	 */
+	newTuple->t_data->t_ctid = tuple->t_data->t_ctid;
+	newTuple->t_self = tuple->t_self;
+	newTuple->t_tableOid = tuple->t_tableOid;
+	if (tupleDesc->tdhasoid)
+		HeapTupleSetOid(newTuple, HeapTupleGetOid(tuple));
+
+	return newTuple;
+}
+
 Datum
 replace_empty_string(PG_FUNCTION_ARGS)
 {
@@ -114,7 +168,7 @@ replace_empty_string(PG_FUNCTION_ARGS)
 	if (nresetcols > 0)
 	{
 		/* construct new tuple */
-		rettuple = heap_modify_tuple_by_cols(rettuple, tupdesc,
+		rettuple = __heap_modify_tuple_by_cols(rettuple, tupdesc,
 										 nresetcols, resetcols, values, nulls);
 	}
 
