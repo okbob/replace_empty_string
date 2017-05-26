@@ -1,0 +1,5 @@
+# remove_empty_string extension
+comment = 'replaces empty strings by nulls'
+default_version = '1.0'
+module_pathname = '$libdir/replace_empty_string'
+relocatable = true
